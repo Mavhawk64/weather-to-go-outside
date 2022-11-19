@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -134,12 +133,12 @@ type WindProfile struct {
 // Combined struct of CIVIL and METEO forecast data
 type WeatherForecast struct {
 	Product    string
-	Init       time.Time
+	Init       string
 	DataSeries []DataSeriesWeather
 }
 
 type DataSeriesWeather struct {
-	Datetime     time.Time
+	Datetime     string
 	Cloudcover   int
 	Cloudprofile Cloudprofile
 	Rh_profile   []RhProfile
@@ -161,11 +160,70 @@ type Cloudprofile struct {
 	Lowcloud  int
 }
 
+type MyTime struct {
+	Year   int
+	Month  int
+	Day    int
+	Hour   int
+	Minute int
+	Second int
+}
+
+func time_to_string(t MyTime) string {
+	return fmt.Sprintf("%02d/%02d/%04d %02d:%02d:%02d", t.Month, t.Day, t.Year, t.Hour, t.Minute, t.Second)
+}
+
+func add_hours(t MyTime, hours int) MyTime {
+	t.Hour += hours
+	for t.Hour >= 24 {
+		t.Hour -= 24
+		t.Day += 1
+	}
+
+	if t.Day > 31 {
+		t.Day -= 31
+		t.Month += 1
+	}
+
+	if intInSlice(t.Month, []int{4, 6, 9, 11}) && t.Day > 30 {
+		t.Day -= 30
+		t.Month += 1
+	}
+
+	// If February and leap year
+	if t.Month == 2 && t.Day > 29 && (t.Year%4 == 0 && (t.Year%100 != 0 || t.Year%400 == 0)) {
+		t.Day -= 29
+		t.Month += 1
+	}
+	// If February and not leap year
+	if t.Month == 2 && t.Day > 28 && !(t.Year%4 == 0 && (t.Year%100 != 0 || t.Year%400 == 0)) {
+		t.Day -= 28
+		t.Month += 1
+	}
+
+	if t.Month > 12 {
+		t.Month -= 12
+		t.Year += 1
+	}
+
+	return t
+}
+
+func intInSlice(a int, list []int) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
+
 // Combine the weather data from both the CIVIL and METEO APIs
 func combine_weather_data(civil CivilForecast, meteo MeteoForecast) WeatherForecast {
 	var weather WeatherForecast
 	weather.Product = "Weather Forecast"
-	weather.Init, _ = time.Parse("01/01/2001 00:00:00", parse_datetime_s(meteo.Init))
+	init_time := string_to_time(civil.Init)
+	weather.Init = time_to_string(init_time)
 	if len(meteo.DataSeries) != len(civil.DataSeries) {
 		log.Fatal("The METEO and CIVIL APIs returned different numbers of data points")
 	}
@@ -173,7 +231,7 @@ func combine_weather_data(civil CivilForecast, meteo MeteoForecast) WeatherForec
 	for i := 0; i < len(meteo.DataSeries); i++ {
 		// Take the Hi-Res data from each API (2m RH from CIVIL, 10m wind from METEO)
 		var data DataSeriesWeather
-		data.Datetime = weather.Init.Add(time.Duration(meteo.DataSeries[i].Timepoint) * time.Hour)
+		data.Datetime = time_to_string(add_hours(init_time, meteo.DataSeries[i].Timepoint))
 		data.Cloudcover = meteo.DataSeries[i].Cloudcover
 		data.Cloudprofile.Highcloud = meteo.DataSeries[i].Highcloud
 		data.Cloudprofile.Midcloud = meteo.DataSeries[i].Midcloud
@@ -344,7 +402,7 @@ func parse_datetime(x int) string {
 	month := strconv.Itoa(x)[4:6]
 	day := strconv.Itoa(x)[6:8]
 	hour := strconv.Itoa(x)[8:10]
-	return month + "/" + day + "/" + year + " " + hour + ":00"
+	return month + "/" + day + "/" + year + " " + hour + ":00:00"
 }
 
 func parse_datetime_s(x string) string {
@@ -354,7 +412,19 @@ func parse_datetime_s(x string) string {
 	month := x[4:6]
 	day := x[6:8]
 	hour := x[8:10]
-	return month + "/" + day + "/" + year + " " + hour + ":00"
+	return month + "/" + day + "/" + year + " " + hour + ":00:00"
+}
+
+func string_to_time(x string) MyTime {
+	// 2022111812 -> 11/18/2022 12:00:00
+	// 0123456789
+	year, _ := strconv.Atoi(x[0:4])
+	month, _ := strconv.Atoi(x[4:6])
+	day, _ := strconv.Atoi(x[6:8])
+	hour, _ := strconv.Atoi(x[8:10])
+
+	mt := MyTime{Year: year, Month: month, Day: day, Hour: hour, Minute: 0, Second: 0}
+	return mt
 }
 
 func celsius_to_fahrenheit(x int) int {
